@@ -221,6 +221,76 @@ def get_tiktok_info(username: str):
         profile_pic_url=info.get('profile_pic_url', ''),
         created=created_str
     )
+
+# ==== ROBLOX USER INFO MODEL ====
+class RobloxUserInfo(BaseModel):
+    user_id: int
+    username: str
+    display_name: str
+    description: str
+    is_banned: bool
+    has_verified_badge: bool
+    friends: int
+    followers: int
+    following: int
+    created: str
+    avatar: str
+    previous_usernames: list[str]
+    is_online: bool
+    last_online: str
+    last_location: str = None  # bisa kosong/null
+
+# ==== ENDPOINT: Roblox User Info + Presence (all in one) ====
+@app.get("/roblox/profile/{username}", response_model=RobloxUserInfo)
+def roblox_userinfo(username: str):
+    # 1. Get user id & profile data
+    user_url = f"https://users.roblox.com/v1/usernames/users"
+    profile_url = "https://users.roblox.com/v1/users/"
+    avatar_url = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
+    headers = {"Content-Type": "application/json"}
+    r = requests.post(user_url, headers=headers, json={"usernames":[username],"excludeBannedUsers":False})
+    j = r.json()
+    if not j.get('data') or len(j['data'])==0:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan!")
+    uid = j['data'][0]['id']
+    # Get user profile detail
+    p = requests.get(profile_url+str(uid)).json()
+    # Get avatar image
+    img_req = requests.get(f"{avatar_url}?userIds={uid}&size=180x180&format=Png&isCircular=true").json()
+    avatar_img = img_req['data'][0]['imageUrl'] if img_req.get("data") else ""
+    # Previous usernames
+    prev_req = requests.get(f"https://users.roblox.com/v1/users/{uid}/username-history?limit=50&sortOrder=Desc").json()
+    prev = [n['name'] for n in prev_req.get('data',[])] if prev_req.get('data') else []
+    # Social stats
+    stat = requests.get(f"https://friends.roblox.com/v1/users/{uid}/friends/count").json()
+    friends = stat.get('count',0)
+    followers = requests.get(f"https://friends.roblox.com/v1/users/{uid}/followers/count").json().get('count',0)
+    following = requests.get(f"https://friends.roblox.com/v1/users/{uid}/followings/count").json().get('count',0)
+    # Presence
+    presence = requests.post("https://presence.roblox.com/v1/presence/users", json={"userIds":[uid]}).json()
+    userp = presence.get('userPresences',[{}])[0]
+    is_online = userp.get('userPresenceType',0) == 2 # 2 = online, 1 = in studio, 0 = offline
+    last_online = userp.get("lastOnline", "")
+    last_location = userp.get("lastLocation", "")
+    # Response
+    return RobloxUserInfo(
+        user_id=uid,
+        username=p.get('name',''),
+        display_name=p.get('displayName',''),
+        description=p.get('description',''),
+        is_banned=p.get('isBanned',False),
+        has_verified_badge=p.get('hasVerifiedBadge',False),
+        friends=friends,
+        followers=followers,
+        following=following,
+        created=p.get('created',''),
+        avatar=avatar_img,
+        previous_usernames=prev,
+        is_online=is_online,
+        last_online=last_online,
+        last_location=last_location
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
