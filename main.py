@@ -221,3 +221,6 @@ def get_tiktok_info(username: str):
         profile_pic_url=info.get('profile_pic_url', ''),
         created=created_str
     )
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
