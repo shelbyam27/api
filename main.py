@@ -18,7 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==== Instagram Info Model ====
+
 class InstagramInfo(BaseModel):
     username: str
     full_name: str
@@ -31,9 +31,9 @@ class InstagramInfo(BaseModel):
     fb_id: str
     is_private: bool
     created: str
-    verified: bool = False  # Tambah ini supaya bisa badge di frontend
+    verified: bool = False 
 
-# ==== TikTok Info Model ====
+
 class TikTokInfo(BaseModel):
     user_id: str
     unique_id: str
@@ -57,12 +57,10 @@ class TikTokInfo(BaseModel):
 SESSION_USER = "sikritpipelkiw"
 SESSION_PATH = os.path.join(os.path.dirname(__file__), "sessions", f"session-{SESSION_USER}")
 
-# ==== ENDPOINT: Instagram Info ====
 @app.get("/instagram/{username}", response_model=InstagramInfo)
 def get_instagram_info(username: str):
     L = instaloader.Instaloader()
     try:
-        # Pakai session (biar bisa akses akun private yang kamu follow)
         L.load_session_from_file(SESSION_USER, filename=SESSION_PATH)
         profile = instaloader.Profile.from_username(L.context, username)
         return InstagramInfo(
@@ -82,7 +80,6 @@ def get_instagram_info(username: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Error: {e}")
 
-# ==== ENDPOINT: Instagram Profile Picture Proxy (PASTI MUNCUL) ====
 @app.get("/instagram/{username}/profile-pic-proxy")
 async def ig_profile_pic_proxy(username: str):
     try:
@@ -101,7 +98,6 @@ async def ig_profile_pic_proxy(username: str):
             pic = await client.get(fallback_url)
             return Response(content=pic.content, media_type="image/png")
 
-# ==== ENDPOINT: Instagram Story Viewer ====
 @app.get("/instagram/{username}/stories")
 def get_instagram_stories(username: str):
     try:
@@ -117,7 +113,6 @@ def get_instagram_stories(username: str):
                     "taken_at": str(item.date_utc)
                 })
         if not stories:
-            # Cek private atau publik
             if profile.is_private and not profile.followed_by_viewer:
                 raise HTTPException(status_code=403, detail="Akun private & kamu tidak follow")
             else:
@@ -128,8 +123,6 @@ def get_instagram_stories(username: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error backend: {e}")
 
-
-# ==== ENDPOINT: Instagram Profile Picture Viewer (JSON) ====
 @app.get("/instagram/{username}/profile-pic")
 def get_instagram_profile_pic(username: str):
     try:
@@ -143,7 +136,6 @@ def get_instagram_profile_pic(username: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Error: {e}")
 
-# ==== ENDPOINT: TikTok Info ====
 @app.get("/tiktok/{username}", response_model=TikTokInfo)
 def get_tiktok_info(username: str):
     url = f"https://www.tiktok.com/@{username}"
@@ -173,29 +165,23 @@ def get_tiktok_info(username: str):
         'diggCount': r'"diggCount":(\d+)',
         'friendCount': r'"friendCount":(\d+)',
         'profile_pic': r'"avatarLarger":"(.*?)"',
-        'create_time': r'"createTime":(\d+)'  # PATCH!
+        'create_time': r'"createTime":(\d+)'  
     }
     info = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, html_content)
         info[key] = match.group(1) if match else ""
 
-    # Convert types for number fields
     int_fields = [
         'followers', 'following', 'likes', 'videos', 'commentSetting',
         'heart', 'diggCount', 'friendCount', 'create_time'
     ]
     for key in int_fields:
         info[key] = int(info.get(key, 0) or 0)
-
-    # Boolean fields
     info['verified'] = info['verified'] == 'true'
     info['is_private'] = info['privateAccount'] == 'true'
-
-    # Fix avatar url
     info['profile_pic_url'] = info.get('profile_pic', '').replace('\\u002F', '/')
 
-    # PATCH: convert create_time to human readable
     if info['create_time']:
         created_str = datetime.datetime.utcfromtimestamp(info['create_time']).strftime('%Y-%m-%d %H:%M:%S')
     else:
@@ -222,7 +208,6 @@ def get_tiktok_info(username: str):
         created=created_str
     )
 
-# ==== ROBLOX USER INFO MODEL ====
 class RobloxUserInfo(BaseModel):
     user_id: int
     username: str
@@ -238,12 +223,11 @@ class RobloxUserInfo(BaseModel):
     previous_usernames: list[str]
     is_online: bool
     last_online: str
-    last_location: str = None  # bisa kosong/null
+    last_location: str = None 
 
-# ==== ENDPOINT: Roblox User Info + Presence (all in one) ====
 @app.get("/roblox/profile/{username}", response_model=RobloxUserInfo)
 def roblox_userinfo(username: str):
-    # 1. Get user id & profile data
+
     user_url = f"https://users.roblox.com/v1/usernames/users"
     profile_url = "https://users.roblox.com/v1/users/"
     avatar_url = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
@@ -253,23 +237,18 @@ def roblox_userinfo(username: str):
     if not j.get('data') or len(j['data'])==0:
         raise HTTPException(status_code=404, detail="User tidak ditemukan!")
     uid = j['data'][0]['id']
-    # Get user profile detail
     p = requests.get(profile_url+str(uid)).json()
-    # Get avatar image
     img_req = requests.get(f"{avatar_url}?userIds={uid}&size=180x180&format=Png&isCircular=true").json()
     avatar_img = img_req['data'][0]['imageUrl'] if img_req.get("data") else ""
-    # Previous usernames
     prev_req = requests.get(f"https://users.roblox.com/v1/users/{uid}/username-history?limit=50&sortOrder=Desc").json()
     prev = [n['name'] for n in prev_req.get('data',[])] if prev_req.get('data') else []
-    # Social stats
     stat = requests.get(f"https://friends.roblox.com/v1/users/{uid}/friends/count").json()
     friends = stat.get('count',0)
     followers = requests.get(f"https://friends.roblox.com/v1/users/{uid}/followers/count").json().get('count',0)
     following = requests.get(f"https://friends.roblox.com/v1/users/{uid}/followings/count").json().get('count',0)
-    # Presence
     presence = requests.post("https://presence.roblox.com/v1/presence/users", json={"userIds":[uid]}).json()
     userp = presence.get('userPresences',[{}])[0]
-    is_online = userp.get('userPresenceType',0) == 2 # 2 = online, 1 = in studio, 0 = offline
+    is_online = userp.get('userPresenceType',0) == 2
     last_online = userp.get("lastOnline", "")
     last_location = userp.get("lastLocation", "")
     # Response
